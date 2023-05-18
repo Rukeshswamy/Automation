@@ -1,0 +1,97 @@
+pipeline {
+    agent {
+        docker { image 'node:14-alpine' }
+    }
+    parameters { 
+        string(name: 'ENV', defaultValue: 'Dev', description: '')
+        string(name: 'DEVICE_ID', defaultValue: '3', description: '')
+        choice(name: 'DEVICE_NAME', choices: ['metone', 'climet', 'aerotrack', 'lasair'], description: 'Select Device Type') 
+        string(name: 'SLEEP_AFTER_SAMPLE', defaultValue: '10', description: '')
+        string(name: 'PHARMA_API', defaultValue: 'http://a979c92d6a1e64253932e9d393e58cb6-1023312894.us-east-1.elb.amazonaws.com', description: '')
+        string(name: 'ACTION_MANAGER', defaultValue: 'http://a1fa6e50319fb4411962f4a4a9462fb3-2093605383.us-east-1.elb.amazonaws.com', description: '')
+        string(name: 'DB_HOST', defaultValue: 'ae342e3b592dd480792b0c71d59c4303-381672213.us-east-1.elb.amazonaws.com', description: '')
+        string(name: 'DB_NAME', defaultValue: 'merck', description: '')
+        string(name: 'DB_USER', defaultValue: 'pharmaapi', description: '')
+        string(name: 'DB_PASSWORD', defaultValue: 'NJgU6h4YywMYauBG', description: '')
+        string(name: 'DB_PORT', defaultValue: '5432', description: '')
+        string(name: 'HEARTBEATAPI', defaultValue: 'http://localhost:9090/heartbeat/merck_pharma_heartbeat', description: '')
+        string(name: 'HIVE_MQ_ENDPOINT', defaultValue: 'tcp://aaeba169544f1442993cd0a10feef266-597261454.us-east-1.elb.amazonaws.com', description: '')
+        string(name: 'HIVE_MQ_PORT', defaultValue: '1883', description: '')
+        string(name: 'HIVE_MQ_CLIENT_ID', defaultValue: 'Chaitanya-test-1', description: '')
+        string(name: 'HIVE_MQ_USERNAME', defaultValue: 'merck', description: '')
+        string(name: 'HIVE_MQ_PASSWORD', defaultValue: 'merck123', description: '')
+        string(name: 'HIVE_MQ_TOPIC', defaultValue: 'merck_pharma_sampling_data,merck_pharma_heartbeat:4,merck_pharma_action_response,merck_pharma_action_request,merck_pharma_action_request_2,merck_pharma_device_discovery_2:3,merck_pharma_device_discovery,merck_pharma_sampling_data_ack', description: '')
+        string(name: 'TTL', defaultValue: '3', description: '')
+        string(name: 'PORT', defaultValue: '9090', description: '')
+    }
+    stages {
+        stage('Clone the repo') {
+            steps {
+                git branch: 'master', url: 'git@bitbucket.org:phizzle/testing.git'
+            }
+        }
+        stage('Install requirements') {
+            steps {
+                sh """
+                apk update &&
+                apk add python3 make gcc g++ go curl
+                """
+            }
+        }
+        stage('Build Heartbeat API') {
+            steps {
+                sh """
+                cd heartbeat_api &&
+                ls &&
+                go version &&
+                go build .
+                """
+            }
+        }
+        stage('Run Heartbeat API') {
+            steps {
+                sh """
+                cd heartbeat_api &&
+                ls &&
+                export HIVE_MQ_ENDPOINT=${HIVE_MQ_ENDPOINT} &&
+                export HIVE_MQ_PORT=${HIVE_MQ_PORT} &&
+                export HIVE_MQ_CLIENT_ID=${HIVE_MQ_CLIENT_ID} &&
+                export HIVE_MQ_USERNAME=${HIVE_MQ_USERNAME} &&
+                export HIVE_MQ_PASSWORD=${HIVE_MQ_PASSWORD} &&
+                export HIVE_MQ_TOPIC=${HIVE_MQ_TOPIC} &&
+                export TTL=${TTL} &&
+                export PORT=${PORT} &&
+                nohup ./heartbeat_api &
+                """
+            }
+        }
+        stage('Run the disconnect scenario tests') {
+            steps {
+                sh """
+                df &&
+                curl http://localhost:9090 &&
+                cd disconnect &&
+                npm install &&
+                export ENV=${ENV} &&
+                export DEVICE_ID=${DEVICE_ID} &&
+                export DEVICE_NAME=${DEVICE_NAME} &&
+                export SLEEP_AFTER_SAMPLE=${SLEEP_AFTER_SAMPLE} &&
+                export PHARMA_API=${PHARMA_API} &&
+                export ACTION_MANAGER=${ACTION_MANAGER} &&
+                export DB_HOST=${DB_HOST} &&
+                export DB_NAME=${DB_NAME} &&
+                export DB_USER=${DB_USER} &&
+                export DB_PASSWORD=${DB_PASSWORD} &&
+                export DB_PORT=${DB_PORT} &&
+                export HEARTBEATAPI=${HEARTBEATAPI} &&
+                npm run positive_scenarios
+                """
+            }
+        }
+    }
+    post { 
+        always { 
+            cleanWs()
+        }
+    }
+}
